@@ -1,0 +1,90 @@
+{
+  "id": "papertrade-farm",
+  "version": 1,
+  "description": "Farm PAPER on papertrade unattended: hold a delta-neutral long and short, close both after a set move so the losing leg mints, and repeat until a budget is spent.",
+  "keywords": [
+    "papertrade",
+    "paper",
+    "farm",
+    "papergainz",
+    "delta neutral",
+    "hedge",
+    "mint paper",
+    "perp",
+    "unattended"
+  ],
+  "triggers": [
+    "timer"
+  ],
+  "keys": [
+    "farm:<duty>:<cycle>:open:long",
+    "farm:<duty>:<cycle>:open:short",
+    "farm:<duty>:<cycle>:close:long",
+    "farm:<duty>:<cycle>:close:short"
+  ],
+  "params": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "INSTRUMENT",
+      "MARGIN_USD",
+      "LEVERAGE",
+      "CLOSE_AT_MOVE_PCT",
+      "MAX_TOTAL_LOSS_USD"
+    ],
+    "properties": {
+      "INSTRUMENT": {
+        "type": "string",
+        "enum": [
+          "BTC",
+          "ETH"
+        ],
+        "description": "What the pair is opened on. papertrade lists nothing else."
+      },
+      "MARGIN_USD": {
+        "type": "number",
+        "minimum": 10,
+        "maximum": 100000,
+        "description": "Margin for EACH leg. A cycle commits twice this, and the venue's own minimum is $10 a leg with a $1,000 position size."
+      },
+      "LEVERAGE": {
+        "type": "number",
+        "minimum": 1,
+        "maximum": 25,
+        "default": 10,
+        "description": "Applied to both legs equally. Capped at 25 on purpose: a leg liquidates at 100/LEVERAGE percent, and a liquidated leg leaves the other one running unhedged. Leverage changes how fast a cycle completes, never how much PAPER it can mint."
+      },
+      "CLOSE_AT_MOVE_PCT": {
+        "type": "number",
+        "minimum": 0.05,
+        "maximum": 50,
+        "default": 0.5,
+        "description": "Close both legs once the price has moved this far from entry, either way. This is the 0.X% in the strategy: smaller churns faster and mints less per cycle."
+      },
+      "MAX_TOTAL_LOSS_USD": {
+        "type": "number",
+        "minimum": 1,
+        "maximum": 1000000,
+        "description": "The farm's whole budget. Realised losses are added up across cycles and the duty stops for good once they reach this. This is the only thing standing between an unattended farm and an empty account."
+      },
+      "MAX_CYCLES": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 10000,
+        "default": 100,
+        "description": "Stop after this many completed cycles, whatever the budget says."
+      },
+      "MIN_PAPER_RATE": {
+        "type": "number",
+        "minimum": 0,
+        "default": 1,
+        "description": "Stop if PAPER minted per $1 lost falls below this. The rate decays and has a cliff, so a farm sized on today's rate can quietly become a worse deal than when the owner agreed to it."
+      },
+      "QUIET": {
+        "type": "boolean",
+        "default": false,
+        "description": "Run without a note on every cycle. The stop conditions still always notify."
+      }
+    }
+  }
+}
