@@ -1,7 +1,7 @@
 ---
 name: papertrade-farm
 description: Farm PAPER on Papertrade by holding a long and a short of equal size, closing both after a move so the losing leg mints - a fee, not a bet on the market.
-version: 0.1.0
+version: 0.2.0
 metadata: {"butler":{"moneyMoving":true,"keywords":["farm paper","paper farm","papergainz","farm papertrade","mint paper","hedged farm","delta neutral","paper token","farm the airdrop","stop my farm"],"requires":{"bins":["python3","curl","awk","bevo-read","bevo-automation"],"skills":["papertrade-xyz"]}}}
 ---
 
@@ -25,10 +25,10 @@ PAPER once farmed, or any market Papertrade does not list.
 
 ## Before you start
 
-1. **Say what it costs, as a fee.** A cycle costs about **2% of the move**, not the
-   move. Telling an owner a farm "loses $25 a cycle" is wrong for a hedged pair and
-   will put them off something they asked for. `references/farm.md` has the maths and
-   the sentence to use.
+1. **Say what a cycle costs, in dollars.** A losing close books its whole move; a
+   winning one keeps about 84% of its own. That gap - roughly **17% of the move** at
+   the default close size - is the cost, not the whole loss and not the 2% fee.
+   `references/farm.md` has the measured table and the sentence to use.
 
 2. **Say what it is not.** It is not yield and not a trade. It buys PAPER with fees,
    and whether that is a good buy depends on what PAPER is worth - which Butler has no
@@ -64,15 +64,15 @@ PAPER once farmed, or any market Papertrade does not list.
    `references/farm.md`'s table, then say the fee and the budget:
 
    ```text
-   $500 a leg at 10x, closing after a 0.5% move.
-   Each cycle costs about $0.50 in fees and mints about 2,500 PAPER.
-   It stops when fees reach the $50 you set - roughly 100 cycles.
+   $500 a leg at 10x, closing after a 0.3% move.
+   Each cycle costs about $2.60 and mints about 162 PAPER.
+   It stops when the cost reaches the $50 you set - roughly 19 cycles.
    $1,000 is tied up in the pair while each cycle runs.
    ```
 
-4. [ADAPT] Get a yes to the **fee and the budget**, not to the idea: *"Happy to spend
-   $50 in fees to mint roughly 250,000 PAPER?"* A yes to farming is not a yes to a
-   number.
+4. [ADAPT] Get a yes to the **cost and the budget**, not to the idea: *"Happy to spend
+   $50 to mint roughly 3,100 PAPER? That is worth it only if PAPER is above about
+   1.6 cents to you."* A yes to farming is not a yes to a number.
 
 5. [FIXED] Get the helper path the duty will run, and file the duty in
    `references/farm.md` with a `timer` trigger of 60 seconds:
@@ -125,6 +125,7 @@ after sending anything and never re-sends a cycle it cannot confirm.
 | `sessionKey.action` is not `ready` | Hand them to `papertrade-xyz` to register or renew. File nothing. |
 | `availableUsd` under twice the margin | Say what a pair needs and what is free. Offer a smaller margin; never fund it here. |
 | Owner wants leverage that puts the close target near the wipe-out | Refuse and say why: the losing leg would be liquidated and the winner left running alone. Offer less leverage or an earlier close. |
+| Owner wants to close on a very small move | Say it costs more per PAPER, not less: under 0.1% the fixed part of the haircut more than doubles the cost. 0.3% is the default for that reason. |
 | A farm already runs on that market | Say so and show it. Never file a second. |
 | The duty reports it stopped | Read its reason out as given. Do not re-file without going through step 3 again. |
 | Owner asks what PAPER is worth | Say Butler cannot tell them, and that the farm's cost is the fee either way. |
@@ -143,10 +144,10 @@ after sending anything and never re-sends a cycle it cannot confirm.
 Lead with the fee, then the budget, then what is tied up:
 
 "A farm holds a $5,000 long and a $5,000 short on BTC at the same time, so which way
-BTC goes does not matter. Each cycle costs about **$0.50** in fees and mints about
-**2,500 PAPER**. It stops when fees reach the **$50** you set. While a cycle runs,
-$1,000 of yours is in the pair. Whether that is a good trade depends on what PAPER
-ends up worth, and I have no way to tell you that."
+BTC goes does not matter. Each cycle costs about **$2.60** and mints about **162
+PAPER**. It stops when that reaches the **$50** you set. While a cycle runs, $1,000 of
+yours is in the pair. It is worth doing only if PAPER is worth more than about **1.6
+cents** to you - and I have no way to tell you whether it is."
 
 When stopping: "Your farm is off - no new cycles. There is still a pair open; want me
 to close it?"

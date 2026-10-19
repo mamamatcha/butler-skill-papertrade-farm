@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.2.0
+
+- **Corrected the economics against ~2,400 real closes.** A cycle does not cost the 2%
+  fee: a losing close books its whole move while a winning one keeps a median 43%, and
+  that gap is the cost. The 2% is exact but small.
+- **The rate is 10.8 PAPER per $1 lost, not 100.** The protocol's own `rate` field
+  reads 100; realised minting over 1,935 closes is a tenth of that. A farm sized on the
+  advertised figure overstates itself ninefold.
+- **Default close moved to 0.3%.** The haircut is mostly fixed per close, so small
+  moves are taxed hardest: under 0.05% a winner keeps 39%, at 0.3% about 84%. Break-even
+  is ~$0.016 a PAPER at the default, against ~$0.057 if churning tiny moves.
+- The duty refuses a close target under 0.05%, and quotes cost and PAPER per cycle from
+  the measured figures.
+
 ## 0.1.0
 
 - First release. Farms PAPER with a delta-neutral pair: a long and a short of equal

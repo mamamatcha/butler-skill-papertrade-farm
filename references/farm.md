@@ -8,27 +8,52 @@ actually leaves is the fee on the winning close.
 Not a separate venue or a separate key - the same account, the same session key, the same
 helper as the rest of this skill.
 
-## What a cycle costs, and why it is not the loss
+## What a cycle actually costs
 
-The obvious reading is that farming costs the loss. It does not, because the pair is
-held together:
+Two things decide it, and neither is the one the docs lead with.
+
+**Losers lose the whole move; winners keep only part of it.** Measured over ~2,400 real
+closes: a losing close books 100% of the move, while a winning close keeps a median
+**43%** before its fee. That asymmetry - not the 2% fee - is where the money goes, and
+it is how an LP survives offering 1000x.
+
+**The rate is not 100.** The protocol's `rate` field reads 100 PAPER per $1 lost;
+realised minting across 1,935 closes is **10.8**. Size a farm on 100 and it overstates
+itself ninefold.
+
+So a hedged cycle costs the gap between the legs:
 
 ```text
-margin 500/leg, 10x, closed after a 0.5% move
+margin 500/leg, 10x, closed after a 0.3% move
 
-  winning leg   +$25.00   less 2% of the gain      -$0.50
-  losing leg    -$25.00   mints 2,500 PAPER
+  theoretical move          $15.00 each way
+  losing leg      -$15.00   mints about 162 PAPER (10.8 x 15)
+  winning leg     +$12.65   84% kept, less 2% of it   = +$12.39
   ----------------------------------------------------------
-  net cash      -$0.50    the legs cancel; the fee is what is real
+  net cash         -$2.61   this is the cost of one cycle
 ```
 
-**One cycle costs the fee, not the loss**, and mints on the whole move. Break-even is
-therefore about **$0.0002 per PAPER** at these settings - the fee divided by the PAPER
-minted - not the ~$0.01 that an *unhedged* loser needs.
+Break-even is therefore about **$0.016 per PAPER** at this setting.
 
-Say that to the owner as the fee, in dollars. "It costs about 50 cents a cycle" is true
-and understandable; "it loses $25" is not true of a hedged pair and will frighten them
-off something they asked for.
+## Close on bigger moves; the haircut is mostly fixed
+
+The amount a winner keeps rises sharply with the size of the move, because the haircut
+barely scales. Churning tiny moves is the expensive way to farm:
+
+| Closed on a move of | Winner keeps | Cycle costs | Break-even $/PAPER |
+| --- | --- | --- | --- |
+| under 0.05% | 39% | 0.62 x move | $0.057 |
+| 0.1 - 0.25% | 78% | 0.24 x move | $0.022 |
+| **0.25 - 0.5%** | **84%** | **0.17 x move** | **$0.016** |
+| 0.5 - 1% | 87% | 0.15 x move | $0.014 |
+| over 1% | 88% | 0.14 x move | $0.013 |
+
+**0.3% is the default** - most of the efficiency, without waiting all day for a cycle.
+Below about 0.1% a farm costs more than twice what it needs to; the duty refuses
+anything under 0.05%.
+
+Say the cost to the owner in dollars per cycle, and say that whether it is worth paying
+depends on what PAPER is worth - which Butler has no way to tell them.
 
 ## What makes it go wrong
 
@@ -83,7 +108,7 @@ INTENTS = "https://exchange.papertrade.xyz/intents"
 MARKET = str(PARAMS.get("MARKET") or "BTC")
 MARGIN_USD = float(PARAMS.get("MARGIN_USD") or 0)
 LEVERAGE = float(PARAMS.get("LEVERAGE") or 10)
-CLOSE_AT = float(PARAMS.get("CLOSE_AT_MOVE_PCT") or 0.5)
+CLOSE_AT = float(PARAMS.get("CLOSE_AT_MOVE_PCT") or 0.3)
 MAX_FEES_USD = float(PARAMS.get("MAX_FEES_USD") or 0)
 MAX_CYCLES = int(PARAMS.get("MAX_CYCLES") or 100)
 
@@ -91,6 +116,19 @@ MAX_CYCLES = int(PARAMS.get("MAX_CYCLES") or 100)
 #: that liquidates the losing leg and leaves the winner running alone, which is
 #: the one thing a pair exists to prevent.
 SAFETY = 0.5
+
+#: Below this the fixed part of the haircut dominates and a cycle costs more
+#: than twice what it should. See the table above.
+MIN_CLOSE_AT = 0.05
+
+#: Realised PAPER per $1 lost. The protocol's own `rate` field reads 100; what
+#: is actually minted is about a tenth of that, so the budget note below uses
+#: the measured figure rather than the advertised one.
+PAPER_PER_USD = 10.8
+
+#: Share of a winning move that survives to the account at the default close
+#: size. The loser books its move in full, so this is what sets the cost.
+WINNER_KEEPS = 0.84
 
 
 def helper(*args):
@@ -119,6 +157,9 @@ owner = bevo.read("/me")["user"]["agentWalletAddress"]
 
 if MARGIN_USD <= 0 or MAX_FEES_USD <= 0:
     bevo.done("This farm needs MARGIN_USD and MAX_FEES_USD above zero before it can run.")
+if CLOSE_AT < MIN_CLOSE_AT:
+    bevo.done(f"Closing at {CLOSE_AT}% is too small to farm economically - the fixed part "
+              f"of the close haircut would cost more than the PAPER is worth. Use 0.3% or more.")
 if CLOSE_AT >= (100.0 / LEVERAGE) * SAFETY:
     bevo.done(f"Closing at {CLOSE_AT}% is too near the {100.0 / LEVERAGE:.2f}% that wipes out a "
               f"leg at {LEVERAGE:g}x. Close earlier, or use less leverage.")
@@ -207,12 +248,14 @@ for tick in bevo.ticks():
     if status != "201":
         continue
 
-    # The legs cancel; what leaves is the fee on the winning close.
-    cost = 0.02 * moved
+    # The loser books its move in full; the winner keeps only part of its own.
+    # That gap, not the 2% fee, is what a cycle costs.
+    cost = moved * (1 - WINNER_KEEPS * 0.98)
     bevo.state["fees_usd"] = round(fees + cost, 4)
     bevo.state["cycles"] = cycles + 1
     bevo.notify(f"PAPER farm: cycle {cycles + 1} closed on a ${moved:,.2f} move, costing about "
-                f"${cost:,.2f} in fees. ${bevo.state['fees_usd']:,.2f} of the "
+                f"${cost:,.2f}, minting about {moved * PAPER_PER_USD:,.0f} PAPER. "
+                f"${bevo.state['fees_usd']:,.2f} of the "
                 f"${MAX_FEES_USD:,.2f} budget used.")
 ```
 
