@@ -1,64 +1,72 @@
 # butler-skill-papertrade-farm
 
-The `papertrade-farm` duty template for [Butler](https://github.com/Virtual-Protocol/butler-skills).
-Runs the PAPER farm unattended.
+The `papertrade-farm` skill for [Butler](https://github.com/Virtual-Protocol/butler-skills).
+For the humans maintaining this repo — never published to a butler. Only `SKILL.md`
+and `references/**/*.md` reach one.
 
-## The strategy
+## What it does
 
-papertrade mints PAPER to traders who **lose**. One cycle:
+Farms **PAPER**, the token Papertrade mints to traders who lose, by holding a long and
+a short of equal size on one market and closing both after a set move. Price direction
+cancels between the legs; the losing one mints.
 
-1. Open a **long and a short of equal notional** on BTC or ETH — delta neutral, so
-   price direction nets out.
-2. Wait for the price to move `CLOSE_AT_MOVE_PCT` from entry, either way.
-3. **Close both legs.** The losing leg's realised loss mints PAPER; the winning leg
-   covers it.
-4. Repeat until a budget is spent.
+## Why it is separate from `papertrade-xyz`
 
-## What this duty is, honestly
+It declares `requires.skills: ["papertrade-xyz"]`, so the hub installs that skill
+first and this one extracts **its** helper:
 
-**It loses money on purpose, with nobody watching.** Whether that is worth doing
-depends entirely on what PAPER is worth, and this duty cannot know that. So it does
-not judge the trade — it enforces a budget, keeps the pair balanced, and stops the
-moment anything stops making sense.
+```sh
+awk '/^```python$/{f=1;next} /^```$/{f=0} f' "$HOME/skills/papertrade-xyz/references/helper.md" > /tmp/papertrade.py
+```
 
-## The arithmetic that sets the leverage cap
+Nothing is duplicated — the account, session key, funding, registration and the
+open/close calls all stay in `papertrade-xyz`. Same precedent as `butler-grabfood`
+building on `butler-app-checkout`.
 
-A leg liquidates at `100 / LEVERAGE` percent, and **a leg cannot lose more than its
-own margin** — so the PAPER a cycle can mint is capped at `rate × margin` at *any*
-leverage. Leverage changes how fast a cycle completes, never how much it yields.
+Keeping it separate also means farming ships on its own cadence, carries its own
+risk conversation, and gets its own 12,000-character budget rather than squeezing
+`papertrade-xyz`'s, which sits at 11,980 of its limit.
 
-What it does change is the failure: a liquidated leg leaves the other one running
-**unhedged**, which is the one state a delta-neutral pair exists to prevent. Hence
-`LEVERAGE ≤ 25`, and `CLOSE_AT_MOVE_PCT` must sit at most halfway to the liquidation
-distance — the duty refuses its own settings otherwise.
+## The thing to get right
 
-## Stopping
+**A hedged cycle does not cost the loss.** The legs offset, so what leaves the account
+is the 2% taken on the winning close:
 
-Three things stop it **for good**, each checked before a cycle is opened, never after:
+```text
+margin 500/leg, 10x, closed after a 0.5% move
 
-| | |
-| --- | --- |
-| `MAX_TOTAL_LOSS_USD` | the whole budget; realised losses accumulate against it |
-| `MAX_CYCLES` | a hard count |
-| `MIN_PAPER_RATE` | the mint rate decays and has a cliff — a farm filed at one rate should not keep running at a worse one |
+  winning leg   +$25.00   less 2% of the gain      -$0.50
+  losing leg    -$25.00   mints 2,500 PAPER
+  ----------------------------------------------------------
+  net cash      -$0.50    the legs cancel; the fee is what is real
+```
 
-Two things stop it **for a fire**: an unbalanced pair, and a money command whose
-outcome is unknown.
+Break-even is therefore about **$0.0002 a PAPER**, not the ~$0.01 an *unhedged* loser
+needs. Saying "this loses $25 a cycle" is simply false of a hedged pair.
 
-That second one is the important one. **A farm that re-opens after an uncertain fill
-is a farm holding two longs** — not a hedge, but a directional bet the owner never
-agreed to. So an unknown outcome stops the duty rather than retrying.
+## What can actually go wrong
 
-Likewise, if one leg opens and the other does not, the duty **unwinds the leg that
-opened** rather than leaving it running.
+**One leg open without the other.** Everything else is ordinary. So the duty in
+`references/farm.md` opens only from flat, unwinds a half-opened pair rather than
+leaving it, stops rather than retrying when it cannot tell what landed, and refuses
+settings where the close target is more than half the wipe-out distance.
 
-## What it needs that does not exist yet
+**Leverage is speed, not yield** — a leg cannot lose more than its margin, so the
+PAPER a cycle mints is capped by the margin whatever the leverage. Higher leverage
+only brings the wipe-out closer to the move being waited for.
 
-- **`acp papertrade open|close`** — the money command. Validates today, so this
-  template is ready the day that primitive lands.
-- **`bevo.read("/papertrade/state")`** returning `paperRatePerUsd` — without it the
-  `MIN_PAPER_RATE` stop cannot fire, and the farm cannot tell when the deal has got
-  worse. The duty degrades safely (it treats an unreadable rate as "no opinion"), but
-  that stop is the one worth having.
+## Validating a change
 
-Prices come from the existing `bevo.read("/token-price")`.
+```sh
+curl -sSLO https://virtual-protocol.github.io/butler-skills/tools/validate.py
+python3 validate.py --standalone .
+```
+
+`--all` additionally checks that `papertrade-xyz` is listed, since a skill cannot be
+listed ahead of one it requires.
+
+## Releasing
+
+Bump `version` in `SKILL.md`, add the `CHANGELOG.md` entry, merge to `main`. Listing
+is maintainer-only and needs two reviews for a money-moving skill — and
+`papertrade-xyz` must be listed first.
